@@ -88,9 +88,11 @@
             watch.Start();
 
             Program.SendStatus("Initializing...", 0.0, string.Empty);
+            Console.WriteLine();
             Program.DownloadWorld(args[0]);
 
             // DEBUG
+            Console.WriteLine();
             Console.WriteLine("[DEBUG] Download time: " + watch.Elapsed.ToString(@"hh\:mm\:ss"));
             watch.Restart();
 
@@ -99,14 +101,17 @@
             "unbuffer".Bash("mapcrafter -c " + Program.appSettings.MapCrafterConfig + " -j " + Program.appSettings.MapcrafterCores, Program.ConsoleOut);
 
             // DEBUG
+            Console.WriteLine();
             Console.WriteLine("[DEBUG] Render time: " + watch.Elapsed.ToString(@"hh\:mm\:ss"));
             watch.Restart();
 
             // Upload render
             Program.SendStatus("Preparing for upload...", 75.0, string.Empty);
+            Console.WriteLine();
             Program.UploadRender();
 
             // DEBUG
+            Console.WriteLine();
             Console.WriteLine("[DEBUG] Upload time: " + watch.Elapsed.ToString(@"hh\:mm\:ss"));
             watch.Stop();
 
@@ -145,7 +150,7 @@
 
                 double offset = 25.0 + ((50.0 / (double)Program.appSettings.WorldCount) * (Program.worldCounter - 1));
                 double status = offset + ((percentValue / 100.0) * (50.0 / (double)Program.appSettings.WorldCount));
-                Program.SendStatus("Rendering world...", status, values[valueStartIndex + 2], Console.CursorTop - 1);
+                Program.SendStatus("Rendering world...", status, values[valueStartIndex + 2]);
             }
 
             if (line.Length > 5)
@@ -170,12 +175,11 @@
 
             long total = 0;
             long current = 0;
-            int cursor = Console.CursorTop;
 
             Action update = new Action(() =>
             {
                 current++;
-                Program.SendStatus("Downloading world...", 25.0 * ((double)current / (double)total), current + "/" + total, cursor);
+                Program.SendStatus("Downloading world...", 25.0 * ((double)current / (double)total), current + "/" + total);
             });
 
             // Download new world files
@@ -186,14 +190,14 @@
                 if (client.IsConnected)
                 {
                     total = client.GetDirectoryTreeFileCount(remotePath);
-
                     List<Task> tasks = new List<Task>();
                     client.DownloadDirectory(Program.appSettings.WorldFolder, remotePath, tasks, update);
                     Task.WhenAll(tasks).GetAwaiter().GetResult();
                 }
                 else
                 {
-                    Program.SendStatus("ERROR: Download failed!", 0.0, string.Empty, -1, "progressError");
+                    Console.WriteLine();
+                    Program.SendStatus("ERROR: Download failed!", 0.0, string.Empty, "progressError");
                     Environment.Exit(-1);
                 }
             }
@@ -205,9 +209,8 @@
         /// <param name="message">Current state name</param>
         /// <param name="progress">Current progress</param>
         /// <param name="otherInfo">Other info</param>
-        /// <param name="cursorOutPosition">Console cursor position</param>
         /// <param name="eventName">Event name</param>
-        private static void SendStatus(string message, double progress, string otherInfo, int cursorOutPosition = -1, string eventName = "progressUpdate")
+        private static void SendStatus(string message, double progress, string otherInfo, string eventName = "progressUpdate")
         {
             string eventMessage = new SocketEvent
             {
@@ -224,12 +227,9 @@
             Program.WriteToSockets(eventMessage);
 
             // Console out
-            if (cursorOutPosition >= 0)
-            {
-                Console.CursorTop = cursorOutPosition;
-            }
-
-            Console.WriteLine("[" + eventName + "] - " + message + " - " + progress.ToString("0.00") + "% " + otherInfo);
+            Console.CursorLeft = 0;
+            Console.Write("[" + eventName + "] - " + message + " - " + progress.ToString("0.00") + "% " + otherInfo);
+            Console.CursorLeft = 0;
         }
 
         /// <summary>
@@ -239,12 +239,11 @@
         {
             int total = Directory.GetFiles(Program.appSettings.RenderFolder, "*.*", SearchOption.AllDirectories).Count();
             int current = 0;
-            int cursor = Console.CursorTop;
 
             Action update = new Action(() =>
             {
                 current++;
-                Program.SendStatus("Uploading render...", 75.0 + (25.0 * ((double)current / (double)total)), current + "/" + total, cursor);
+                Program.SendStatus("Uploading render...", 75.0 + (25.0 * ((double)current / (double)total)), current + "/" + total);
             });
 
             using (SSH.SftpClient client = new SSH.SftpClient(Program.appSettings.RemoteAddress, Program.appSettings.RemoteName, Program.appSettings.RemotePassword))
@@ -259,7 +258,8 @@
                 }
                 else
                 {
-                    Program.SendStatus("ERROR: Uploading failed!", 0.0, string.Empty, -1, "progressError");
+                    Console.WriteLine();
+                    Program.SendStatus("ERROR: Uploading failed!", 0.0, string.Empty, "progressError");
                 }
             }
         }

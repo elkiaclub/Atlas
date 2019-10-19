@@ -4,6 +4,7 @@
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Threading.Tasks;
     using SSH = Renci.SshNet;
 
@@ -53,22 +54,32 @@
         /// <param name="fileDownloaded">File was downloaded</param>
         public static void DownloadDirectory(this SSH.SftpClient client, string localPath, string remotePath, List<Task> tasks, Action fileDownloaded = null)
         {
-            foreach (SSH.Sftp.SftpFile file in client.ListDirectory(remotePath))
+            foreach (SSH.Sftp.SftpFile file in client.ListDirectory(remotePath).OrderBy(item => item.IsDirectory))
             {
                 if (!file.IsDirectory && !file.IsSymbolicLink)
                 {
-                    tasks.Add(Task.Run(() =>
-                    {
-                        client.DownloadFile(file, localPath);
+                    // Start download file task
+                    tasks.Add(
+                        Task.Factory.StartNew(
+                            () =>
+                            {
+                                client.DownloadFile(file, localPath);
 
-                        if (fileDownloaded != null)
-                        {
-                            fileDownloaded();
-                        }
-                    }));
+                                if (fileDownloaded != null)
+                                {
+                                    fileDownloaded();
+                                }
+                            },
+                            TaskCreationOptions.LongRunning));
+
+                    while (tasks.Count(task => !task.IsCompleted) >= client.ConnectionInfo.MaxSessions)
+                    {
+                        // Wait here if we are downloading too many files at once
+                    }
                 }
                 else if (file.Name != "." && file.Name != ".." && !file.IsSymbolicLink)
                 {
+                    Task.WhenAll(tasks).GetAwaiter().GetResult();
                     DirectoryInfo dir = Directory.CreateDirectory(Path.Combine(localPath, file.Name));
                     client.DownloadDirectory(dir.FullName, file.FullName, tasks, fileDownloaded);
                 }
@@ -147,22 +158,32 @@
                         client.CreateDirectory(subPath);
                     }
 
+                    Task.WhenAll(tasks).GetAwaiter().GetResult();
                     client.UploadDirectory(info.FullName, remotePath + "/" + info.Name, tasks, fileUploaded);
                 }
                 else
                 {
-                    tasks.Add(Task.Run(() =>
-                    {
-                        using (Stream fileStream = new FileStream(info.FullName, FileMode.Open))
-                        {
-                            client.UploadFile(fileStream, remotePath + "/" + info.Name, true);
-                        }
+                    // Start upload file task
+                    tasks.Add(
+                        Task.Factory.StartNew(
+                            () =>
+                            {
+                                using (Stream fileStream = new FileStream(info.FullName, FileMode.Open))
+                                {
+                                    client.UploadFile(fileStream, remotePath + "/" + info.Name, true);
+                                }
 
-                        if (fileUploaded != null)
-                        {
-                            fileUploaded();
-                        }
-                    }));
+                                if (fileUploaded != null)
+                                {
+                                    fileUploaded();
+                                }
+                            },
+                            TaskCreationOptions.LongRunning));
+
+                    while (tasks.Count(task => !task.IsCompleted) >= client.ConnectionInfo.MaxSessions)
+                    {
+                        // Wait here if we are uploading too many files at once
+                    }
                 }
             }
         }
