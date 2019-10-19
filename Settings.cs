@@ -74,7 +74,7 @@
                 return new Settings().Save();
             }
 
-            return JSON.JsonConvert.DeserializeObject(File.ReadAllText(Settings.SettingsFilePath)) as Settings;
+            return JSON.JsonConvert.DeserializeObject<Settings>(File.ReadAllText(Settings.SettingsFilePath));
         }
 
         /// <summary>
