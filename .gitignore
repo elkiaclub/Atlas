@@ -1,0 +1,15 @@
+WorldManagerSettings.json
+\.vs/
+
+*.xml
+*.user
+
+StyleCop/
+
+Properties/
+
+obj/
+
+bin/
+
+*.Cache
