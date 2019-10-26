@@ -264,7 +264,7 @@
                 }
             });
 
-            ("unbuffer sshpass -p '" + Program.appSettings.RemotePassword + "rsync -Iazt --delete-before --force --no-i-r --info=progress2 --recursive " + Program.appSettings.RenderFolder + "/* " +
+            ("unbuffer sshpass -p '" + Program.appSettings.RemotePassword + "' rsync -Iazt --delete-before --force --no-i-r --info=progress2 --recursive " + Program.appSettings.RenderFolder + "/* " +
             Program.appSettings.RemoteName + "@" + Program.appSettings.RemoteAddress + ":" + Program.appSettings.RemoteRenderFolder + "/").BashScript(update);
         }
 
