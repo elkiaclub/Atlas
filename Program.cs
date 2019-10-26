@@ -7,8 +7,6 @@
     using System.IO;
     using System.Linq;
     using System.Threading;
-    using System.Threading.Tasks;
-    using SSH = Renci.SshNet;
     using WS = WebSocketSharp;
 
     /// <summary>
@@ -173,34 +171,36 @@
                 Directory.CreateDirectory(Program.appSettings.WorldFolder);
             }
 
-            long total = 0;
-            long current = 0;
-
-            Action update = new Action(() =>
+            Action<object, DataReceivedEventArgs> update = new Action<object, DataReceivedEventArgs>((sender, e) =>
             {
-                current++;
-                Program.SendStatus("Downloading world...", 25.0 * ((double)current / (double)total), current + "/" + total);
+                if (e == null || string.IsNullOrWhiteSpace(e.Data))
+                {
+                    return;
+                }
+
+                string[] values = e.Data.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                string speed = values.FirstOrDefault(value => value.Contains("/s"));
+                string progressText = values.FirstOrDefault(value => value.Contains('%'));
+
+                if (!string.IsNullOrWhiteSpace(progressText))
+                {
+                    double progress = 0.0;
+                    string valueText = progressText.Trim().Remove(progressText.Length - 1);
+
+                    if (!double.TryParse(valueText, out progress))
+                    {
+                        int progressInt = 0;
+                        int.TryParse(valueText, out progressInt);
+                        progress = progressInt;
+                    }
+
+                    Program.SendStatus("Downloading world...", 25.0 * (progress / 100.0), string.IsNullOrWhiteSpace(speed) ? string.Empty : speed.Trim());
+                }
             });
 
-            // Download new world files
-            using (SSH.SftpClient client = new SSH.SftpClient(Program.appSettings.RemoteAddress, Program.appSettings.RemoteName, Program.appSettings.RemotePassword))
-            {
-                client.Connect();
-
-                if (client.IsConnected)
-                {
-                    total = client.GetDirectoryTreeFileCount(remotePath);
-                    List<Task> tasks = new List<Task>();
-                    client.DownloadDirectory(Program.appSettings.WorldFolder, remotePath, tasks, update);
-                    Task.WhenAll(tasks).GetAwaiter().GetResult();
-                }
-                else
-                {
-                    Console.WriteLine();
-                    Program.SendStatus("ERROR: Download failed!", 0.0, string.Empty, "progressError");
-                    Environment.Exit(-1);
-                }
-            }
+            ("unbuffer sshpass -p '" + Program.appSettings.RemotePassword + "' rsync -Iazt --no-p --no-g --no-i-r --info=progress2 --recursive " +
+            Program.appSettings.RemoteName + "@" + Program.appSettings.RemoteAddress + ":" + remotePath + "/* " + Program.appSettings.WorldFolder + "/").BashScript(update);
         }
 
         /// <summary>
@@ -227,9 +227,8 @@
             Program.WriteToSockets(eventMessage);
 
             // Console out
-            Console.CursorLeft = 0;
-            Console.Write("[" + eventName + "] - " + message + " - " + progress.ToString("0.00") + "% " + otherInfo);
-            Console.CursorLeft = 0;
+            Console.Write("\r" + new string(' ', Console.WindowWidth));
+            Console.Write("\r" + message + " - " + progress.ToString("0.0") + "% - " + otherInfo);
         }
 
         /// <summary>
@@ -237,31 +236,36 @@
         /// </summary>
         private static void UploadRender()
         {
-            int total = Directory.GetFiles(Program.appSettings.RenderFolder, "*.*", SearchOption.AllDirectories).Count();
-            int current = 0;
-
-            Action update = new Action(() =>
+            Action<object, DataReceivedEventArgs> update = new Action<object, DataReceivedEventArgs>((sender, e) =>
             {
-                current++;
-                Program.SendStatus("Uploading render...", 75.0 + (25.0 * ((double)current / (double)total)), current + "/" + total);
+                if (e == null || string.IsNullOrWhiteSpace(e.Data))
+                {
+                    return;
+                }
+
+                string[] values = e.Data.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                string speed = values.FirstOrDefault(value => value.Contains("/s"));
+                string progressText = values.FirstOrDefault(value => value.Contains('%'));
+
+                if (!string.IsNullOrWhiteSpace(progressText))
+                {
+                    double progress = 0.0;
+                    string valueText = progressText.Trim().Remove(progressText.Length - 1);
+
+                    if (!double.TryParse(valueText, out progress))
+                    {
+                        int progressInt = 0;
+                        int.TryParse(valueText, out progressInt);
+                        progress = progressInt;
+                    }
+
+                    Program.SendStatus("Uploading world...", 75.0 + (25.0 * (progress / 100.0)), string.IsNullOrWhiteSpace(speed) ? string.Empty : speed.Trim());
+                }
             });
 
-            using (SSH.SftpClient client = new SSH.SftpClient(Program.appSettings.RemoteAddress, Program.appSettings.RemoteName, Program.appSettings.RemotePassword))
-            {
-                client.Connect();
-
-                if (client.IsConnected)
-                {
-                    List<Task> tasks = new List<Task>();
-                    client.UploadDirectory(Program.appSettings.RenderFolder, Program.appSettings.RemoteRenderFolder, tasks, update);
-                    Task.WhenAll(tasks).GetAwaiter().GetResult();
-                }
-                else
-                {
-                    Console.WriteLine();
-                    Program.SendStatus("ERROR: Uploading failed!", 0.0, string.Empty, "progressError");
-                }
-            }
+            ("unbuffer sshpass -p '" + Program.appSettings.RemotePassword + "rsync -Iazt --delete-before --force --no-i-r --info=progress2 --recursive " + Program.appSettings.RenderFolder + "/* " +
+            Program.appSettings.RemoteName + "@" + Program.appSettings.RemoteAddress + ":" + Program.appSettings.RemoteRenderFolder + "/").BashScript(update);
         }
 
         /// <summary>
