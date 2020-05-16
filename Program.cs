@@ -32,7 +32,63 @@
         /// <summary>
         /// Render world counter
         /// </summary>
-        private static int worldCounter = 0;
+        private static string lastWorld = string.Empty;
+
+        /// <summary>
+        /// World count
+        /// </summary>
+        private static int worldCount = 0;
+
+        /// <summary>
+        /// World count
+        /// </summary>
+        private static int worldTotal = 0;
+
+        /// <summary>
+        /// Rotation count
+        /// </summary>
+        private static int rotationCount = 0;
+
+        /// <summary>
+        /// Rotation count
+        /// </summary>
+        private static int rotationTotal = 0;
+
+        /// <summary>
+        /// Connect in background
+        /// </summary>
+        private static void ConnectBackground()
+        {
+            new Thread(() =>
+            {
+                Thread.CurrentThread.IsBackground = true;
+
+                while (Program.client == null)
+                {
+                    try
+                    {
+                        WS.WebSocket client = new WS.WebSocket(Program.appSettings.WebsocketServerAddress);
+                        client.WaitTime = new TimeSpan(0, 0, 30);
+                        client.Connect();
+
+                        if (client.ReadyState != WS.WebSocketState.Open)
+                        {
+                            Program.client = null;
+                        }
+                        else
+                        {
+                            client.OnClose += (sender, e) => Program.ConnectBackground();
+                            Program.client = client;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Program.client = null;
+                        ex.ToString();
+                    }
+                }
+            }).Start();
+        }
 
         /// <summary>
         /// Program entry point
@@ -70,37 +126,50 @@
                 }
             };
 
-            try
+            if (!string.IsNullOrWhiteSpace(Program.appSettings.WebsocketServerAddress))
             {
-                Program.client = new WS.WebSocket(Program.appSettings.WebsocketServerAddress);
-                Program.client.Connect();
-            }
-            catch (Exception ex)
-            {
-                Program.client = null;
-                ex.ToString();
+                Program.SendStatus("Connecting...", 0.0, string.Empty);
+                Program.ConnectBackground();
+                int counter = 10;
+
+                while(Program.client == null && counter > 0)
+                {
+                    Program.SendStatus("Connecting... " + counter, 0.0, string.Empty);
+                    Thread.Sleep(1000);
+                    counter--;
+                }
+
+                if (counter <= 0)
+                {
+                    Program.SendStatus("Connection failed...", 0.0, string.Empty);
+                }
             }
 
             // Download world
             Stopwatch watch = new Stopwatch();
             watch.Start();
 
-            Program.SendStatus("Initializing...", 0.0, string.Empty);
-            Console.WriteLine();
-            Program.DownloadWorld(args[0]);
+            if (args[0] != "skip")
+            {
+                Program.SendStatus("Initializing...", 0.0, string.Empty);
+                Console.WriteLine();
+                Program.DownloadWorld(args[0]);
+            }
 
             // DEBUG
             Console.WriteLine();
-            Console.WriteLine("[DEBUG] Download time: " + watch.Elapsed.ToString(@"hh\:mm\:ss"));
+            TimeSpan downloadSpan = watch.Elapsed;
+            Console.WriteLine("[DEBUG] Download time: " + downloadSpan.ToString(@"hh\:mm\:ss"));
             watch.Restart();
 
             // Start render
             Program.SendStatus("Initializing world rendering...", 25.0, string.Empty);
-            "unbuffer".Bash("mapcrafter -c " + Program.appSettings.MapCrafterConfig + " -j " + Program.appSettings.MapcrafterCores, Program.ConsoleOut);
+            "unbuffer".Bash("mapcrafter --render-force-all -c " + Program.appSettings.MapCrafterConfig + " -j " + Program.appSettings.MapcrafterCores, Program.ConsoleOut);
 
             // DEBUG
             Console.WriteLine();
-            Console.WriteLine("[DEBUG] Render time: " + watch.Elapsed.ToString(@"hh\:mm\:ss"));
+            TimeSpan renderSpan = watch.Elapsed;
+            Console.WriteLine("[DEBUG] Render time: " + renderSpan.ToString(@"hh\:mm\:ss"));
             watch.Restart();
 
             // Upload render
@@ -110,11 +179,15 @@
 
             // DEBUG
             Console.WriteLine();
-            Console.WriteLine("[DEBUG] Upload time: " + watch.Elapsed.ToString(@"hh\:mm\:ss"));
+            TimeSpan uploadSpan = watch.Elapsed;
+            Console.WriteLine("[DEBUG] Upload time: " + uploadSpan.ToString(@"hh\:mm\:ss"));
             watch.Stop();
 
             // Everything done
             Program.SendStatus("Done...", 100.0, string.Empty);
+            Console.WriteLine("[DEBUG] Download time: " + downloadSpan.ToString(@"hh\:mm\:ss"));
+            Console.WriteLine("[DEBUG] Render time: " + renderSpan.ToString(@"hh\:mm\:ss"));
+            Console.WriteLine("[DEBUG] Upload time: " + uploadSpan.ToString(@"hh\:mm\:ss"));
         }
 
         /// <summary>
@@ -124,36 +197,70 @@
         /// <param name="e">Console data</param>
         private static void ConsoleOut(object sender, DataReceivedEventArgs e)
         {
-            if (e == null || e.Data == null)
+            try
             {
-                return;
+                if (e == null || e.Data == null)
+                {
+                    return;
+                }
+
+                string line = e.Data.Trim();
+
+                if (line.Contains(" Rendering map ") && line.Contains("[INFO] [default]"))
+                {
+                    int start = line.IndexOf("(\"") + 2;
+                    int end = line.Length - 3;
+                    Program.lastWorld = line.Substring(start, end - start);
+                    string worldNumber = line.Split(" ").First(part => part.Contains("[") && part.Contains("]") && part.Contains("/")).Trim();
+
+                    int count = 0;
+                    int.TryParse(worldNumber.Substring(1, worldNumber.IndexOf("/") - 1), out count);
+                    Program.worldCount = count;
+
+                    int max = 0;
+                    int countEnd = worldNumber.IndexOf("/") + 1;
+                    int.TryParse(worldNumber.Substring(countEnd, (worldNumber.Length - 1) - countEnd), out max);
+                    Program.worldTotal = max;
+                }
+
+                if (line.Contains(" Rendering rotation ") && line.Contains("[INFO] [default]") && line.EndsWith("..."))
+                {
+                    string rotationNumber = line.Split(" ").First(part => part.Contains("[") && part.Contains("]") && part.Contains("/")).Trim();
+
+                    int count = 0;
+                    string rotationCountNumber = rotationNumber.Substring(1, rotationNumber.IndexOf("/") - 1);
+                    int.TryParse(rotationCountNumber.Substring(rotationCountNumber.IndexOf(".") + 1), out count);
+                    Program.rotationCount = count;
+
+                    int max = 0;
+                    int countEnd = rotationNumber.IndexOf("/") + 1;
+                    string rotationMaxNumber = rotationNumber.Substring(countEnd, (rotationNumber.Length - 1) - countEnd);
+                    int.TryParse(rotationMaxNumber.Substring(rotationMaxNumber.IndexOf(".") + 1), out max);
+                    Program.rotationTotal = max;
+                }
+
+                if (line.StartsWith("["))
+                {
+                    // Parse progress
+                    string[] values = line.Split(" ", StringSplitOptions.RemoveEmptyEntries).Select(item => item.Replace("-nan", "100.0")).ToArray();
+
+                    string percent = values.First(item => item.Contains("%"));
+                    int valueStartIndex = Array.IndexOf(values, percent);
+                    double percentValue = double.Parse(percent.Replace("%", string.Empty), NumberStyles.Any, CultureInfo.InvariantCulture);
+
+                    double status = Math.Min(100.0, Math.Max(0.0, percentValue));
+
+                    Program.SendStatus("Rendering world...", status, values[valueStartIndex + 2], Program.lastWorld, "worldProgressUpdate");
+                }
+
+                if (line.Length > 5)
+                {
+                    Program.RenderAppOutput.Add(line);
+                }
             }
-
-            string line = e.Data.Trim();
-
-            if (Program.RenderAppOutput.Any() && line.StartsWith("[") && !Program.RenderAppOutput.Last().StartsWith("["))
+            catch (Exception ex)
             {
-                Console.WriteLine();
-                Program.worldCounter++;
-            }
-
-            if (line.StartsWith("["))
-            {
-                // Parse progress
-                string[] values = line.Split(" ", StringSplitOptions.RemoveEmptyEntries).Select(item => item.Replace("-nan", "100.0")).ToArray();
-
-                string percent = values.First(item => item.Contains("%"));
-                int valueStartIndex = Array.IndexOf(values, percent);
-                double percentValue = double.Parse(percent.Replace("%", string.Empty), NumberStyles.Any, CultureInfo.InvariantCulture);
-
-                double offset = 25.0 + ((50.0 / (double)Program.appSettings.WorldCount) * (Program.worldCounter - 1));
-                double status = offset + ((percentValue / 100.0) * (50.0 / (double)Program.appSettings.WorldCount));
-                Program.SendStatus("Rendering world...", status, values[valueStartIndex + 2]);
-            }
-
-            if (line.Length > 5)
-            {
-                Program.RenderAppOutput.Add(line);
+                ex.ToString();
             }
         }
 
@@ -209,8 +316,9 @@
         /// <param name="message">Current state name</param>
         /// <param name="progress">Current progress</param>
         /// <param name="otherInfo">Other info</param>
+        /// <param name="world">Current world name</param>
         /// <param name="eventName">Event name</param>
-        private static void SendStatus(string message, double progress, string otherInfo, string eventName = "progressUpdate")
+        private static void SendStatus(string message, double progress, string otherInfo, string world = "", string eventName = "progressUpdate")
         {
             string eventMessage = new SocketEvent
             {
@@ -219,7 +327,12 @@
                 {
                     Message = message,
                     Progress = progress,
-                    Other = otherInfo
+                    Other = otherInfo,
+                    World = world,
+                    WorldNumber = Program.worldCount,
+                    WorldTotal = Program.worldTotal,
+                    RotationNumber = Program.rotationCount,
+                    RotationTotal = Program.rotationTotal
                 }
             }.ToJson();
 
@@ -227,8 +340,17 @@
             Program.WriteToSockets(eventMessage);
 
             // Console out
-            Console.Write("\r" + new string(' ', Console.WindowWidth));
-            Console.Write("\r" + message + " - " + progress.ToString("0.0") + "% - " + otherInfo);
+            Console.Write("\r" + new string(' ', Console.WindowWidth - 5));
+
+            if (string.IsNullOrWhiteSpace(world))
+            {
+                Console.Write("\r" + message + " - " + progress.ToString("0.0") + "% - " + otherInfo);
+            }
+            else
+            {
+                string details = Program.worldCount + "/" + Program.worldTotal + " (" + Program.rotationCount + "/" + Program.rotationTotal + ")";
+                Console.Write("\r" + message + " - " + world  + " " + details + " - " + progress.ToString("0.0") + "% - " + otherInfo);
+            }
         }
 
         /// <summary>

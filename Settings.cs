@@ -54,11 +54,6 @@
         public string WebsocketServerAddress { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets number of worlds (and rotations) render will do
-        /// </summary>
-        public uint WorldCount { get; set; } = 1;
-
-        /// <summary>
         /// Gets or sets World folder
         /// </summary>
         public string WorldFolder { get; set; } = string.Empty;

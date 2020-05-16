@@ -24,5 +24,35 @@
         /// </summary>
         [JSON.JsonProperty("progress")]
         public double Progress { get; set; }
+
+        /// <summary>
+        /// Gets or sets current rotation number
+        /// </summary>
+        [JSON.JsonProperty("rotationNumber")]
+        public int RotationNumber { get; set; }
+
+        /// <summary>
+        /// Gets or sets total number of rotations
+        /// </summary>
+        [JSON.JsonProperty("rotationTotal")]
+        public int RotationTotal { get; set; }
+
+        /// <summary>
+        /// Gets or sets world name
+        /// </summary>
+        [JSON.JsonProperty("world")]
+        public string World { get; set; }
+
+        /// <summary>
+        /// Gets or sets current world number
+        /// </summary>
+        [JSON.JsonProperty("worldNumber")]
+        public int WorldNumber { get; set; }
+
+        /// <summary>
+        /// Gets or sets total number of worlds
+        /// </summary>
+        [JSON.JsonProperty("worldTotal")]
+        public int WorldTotal { get; set; }
     }
 }
